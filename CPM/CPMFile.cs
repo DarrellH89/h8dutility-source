@@ -345,7 +345,7 @@ namespace CPM
                                         extantnum = buf[bufPtr + dirPtr + 12],
                                         fcbnum = buf[bufPtr + dirPtr + 15]
                                         };
-                                    for (var k = 16; k < 32; k++) tempFcb.fcb[k - 16] = (int)buf[bufPtr + dirPtr + 16 + ((k - 16) * albNumSize)];
+                                    for (var k = 16; k < 32-(albNumSize-1)*8; k++) tempFcb.fcb[k - 16] = (int)buf[bufPtr + dirPtr + 16 + ((k - 16) * albNumSize)];
                                     temp.fcbList.Add(tempFcb);
                                     var obj = fileNameList.FirstOrDefault(x => x.fname == fnameStr);
                                     if (obj != null)            // directory entry exists
@@ -431,7 +431,7 @@ namespace CPM
 
 
                 // Read file data from memory buffer
-                byte[] wBuff = new byte[fileNameList[0].fsize*1024+256];          // write buffer = file size plus a buffer
+                byte[] wBuff = new byte[obj.fsize*1024+256];          // write buffer = file size plus a buffer
                 int wBPtr = 0;
                 var t0 = 0;
                 foreach (var f in obj.fcbList)
