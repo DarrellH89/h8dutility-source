@@ -1,11 +1,9 @@
 ﻿using H8DReader;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using System.Windows.Forms;
 
@@ -26,7 +24,7 @@ namespace CPM
 
         private const byte DISK_VAL = 6;
         /********** data values for reading .IMD disks       */
-        private const int bufferSize = 800*1024;
+        private const int bufferSize = 800 * 1024;
         private byte[] buf = new byte[bufferSize];
         private const int sectorMax = 16 * 160;          // max number of tracks
         private int[] diskMap = new int[sectorMax];      // an array of buffer pointers in buf[] for each sector on the disk starting with track 0, side 0
@@ -35,12 +33,22 @@ namespace CPM
         private int dirSectStart = 15;          // starting sector for disk directory counting from 0. Also first ALB.
         private string DiskImageImdActive = "";
         private long diskSize = 0;
-        private int sectorSize = 256;
-        private List<DirList> fileNameList = new List<DirList>() ;
+     
+        private int diskType = 0,
+            bufPtr = 0,
+            dirStart = 0,
+            dirSize = 0,
+            intLv = 0,
+            spt = 0,
+            sectorSize = 0,
+            numTrack = 0;
+
+        public List<DirList> fileNameList = new List<DirList>();
 
         /*
         Disk type: byte 5 in sector 0 on H-37 disks (starting from 0) to define disk parameters
         Allocation Block size: number of bytes in an the smallest block used by CP/M on the disk. must be a multiple of 128 (0x80)
+                AB numbers start with 0. The directory starts in AB 0.
         Directory Stat: start of directory entries in bytes
         Allocation Block Number Size: number of bytes used in directory entry to reference an allocation block
         Dir Size: number of bytes used for the directory
@@ -48,13 +56,12 @@ namespace CPM
         // Disk type, Allocation block size, Directory start, Allocation block byte size, dir size, interleave, Sectors per Track, Sector Size
         private int[,] DiskType =
         {
-            {0x6f, 0x800, 0x2800, 2, 0x2000, 3, 5, 1024, 160}, // H37 96tpi ED DS
-            {0x62, 0x400, 0x2000, 1, 0x1000, 3, 16, 256, 80}, // H37 48tpi DD SS
-            {0x63, 0x400, 0x2000, 1, 0x2000, 3, 9, 512, 80}, // H37 48tpi DD DS
-            {0x67, 0x400, 0x2800, 2, 0x1000, 3, 5, 1024, 160}, // H37 48tpi ED SS
-            {0x6b, 0x800, 0x2000, 2, 0x2000, 3, 16, 256, 80}, // H37 48tpi ED DS
-            {0x00, 0x100, 0x1e00, 1, 0x800, 4, 10, 256, 40}, // H17 48tpi SD SS
-            {0xE5, 0x400, 0x1e00, 1, 0x800, 4, 10, 256, 40} // Default H17 48tpi SD SS
+            {0x6f, 0x800, 0x2800, 2, 0x2000, 3, 5, 0x400, 160}, // H37 96tpi ED DS
+            {0x62, 0x400, 0x2000, 1, 0x1000, 3, 16, 0x100, 80}, // H37 48tpi DD SS
+            {0x63, 0x400, 0x2000, 1, 0x2000, 3, 9, 0x200, 80}, // H37 48tpi DD DS
+            {0x67, 0x400, 0x2800, 2, 0x1000, 3, 5, 0x400, 160}, // H37 48tpi ED SS
+            {0x6b, 0x800, 0x2000, 2, 0x2000, 3, 16, 0x100, 80}, // H37 48tpi ED DS
+            {0xE5, 0x400, 0x1e00, 1, 0x800, 4, 10, 0x100, 40} // Default H17 48tpi SD SS
         };
 
 
@@ -176,7 +183,7 @@ namespace CPM
             }
 
         //*************** Read IMD Directory
-        public List<DirList> ReadImdDir(string diskFileName, ref long diskTotal)
+        public void ReadImdDir(string diskFileName, ref long diskTotal)
             {
             // Check if file already in memory. If not, then process
             // open file: fileName
@@ -191,52 +198,49 @@ namespace CPM
             UTF8Encoding encoding = new UTF8Encoding();
 
             if (diskFileName != DiskImageImdActive) // check if data already in memory
-            {
+                {
                 FileStream file = File.OpenRead(diskFileName); // read entire file into an array of byte
                 BinaryReader fileByte = new BinaryReader(file);
-                Int32 fileLen = (int) file.Length;
+                Int32 fileLen = (int)file.Length;
                 //byte[] buf = new byte[bufferSize];
                 try
-                {
-                    if (fileByte.Read(buf, 0, bufferSize) != fileLen)
                     {
+                    if (fileByte.Read(buf, 0, bufferSize) != fileLen)
+                        {
                         MessageBox.Show("IMD file read error", "Error", MessageBoxButtons.OK);
-                        return null;
+                        return;
+                        }
                     }
-                }
                 catch
-                {
+                    {
                     MessageBox.Show("File buffer too small", "Error", MessageBoxButtons.OK);
-                    return null;
-                }
+                    return ;
+                    }
 
                 DiskImageImdActive = diskFileName;
                 diskSize = fileLen;
                 fileNameList.Clear();
 
-            }
-            else return fileNameList;       // list is current do nothing
+                }
+            else return ;       // list is current do nothing
 
-            int bufPtr = 0, firstSector;
+            int bufPtr = 0;
             while (buf[bufPtr] != 0x1a && bufPtr < bufferSize) bufPtr++;             // look for end of text comment in IMD file
             if (bufPtr < bufferSize && buf[bufPtr + 1] < 6) // process as IMD file
                 {
                 bufPtr += 4;
-                var spt = buf[bufPtr++]; // sectors per track
+                spt = buf[bufPtr++]; // sectors per track
                 sectorSize = sectorSizeList[buf[bufPtr]];
                 var skewMap = new int[spt];
 
-                for (var i = 0; i < spt; i++) skewMap[i] = buf[++bufPtr]; // load skewmap
-
-                firstSector = ++bufPtr;
+                for (var i = 0; i < spt; i++) skewMap[i] = buf[++bufPtr]; // load skew map from IMD image
+                bufPtr++;           // point to first sector marker
+                //firstSector = bufPtr;
                 int ctr,
-                    //allocBlock = 0,
-                    //albNumSize = 1,
-                    dirStart = 0,
                     dirSizeD = 0,
                     sptD = 0,
-                    sectorSizeD = 0,
-                    numTrack = 0;
+                    sectorSizeD = 0;
+
 
                 //
                 // map sectors
@@ -253,7 +257,7 @@ namespace CPM
                     //int t3 = (sectorCnt / spt) * spt;
                     diskMap[(sectorCnt / spt) * spt + skewMap[sectorCnt % spt] - 1] = bufPtr;         // bufPtr points to sector marker
 
-                    // int t4 = buf[bufPtr];
+                    int t4 = buf[bufPtr];
                     switch (buf[bufPtr])
                         {
                         case 1:
@@ -282,12 +286,12 @@ namespace CPM
                     }
                 //
 
-                var diskType = (int)buf[diskMap[0] + 6];
+                diskType = (int)buf[diskMap[0] + 6];
 
 
                 for (ctr = 0; ctr < DiskType.GetLength(0); ctr++) // search DiskType array for values
                     if (diskType == DiskType[ctr, 0])
-                    {
+                        {
                         albSize = DiskType[ctr, 1]; // ALB Size
                         albNumSize = DiskType[ctr, 3]; // size of ALB size in directory
                         dirStart = DiskType[ctr, 2]; // physical start of directory
@@ -298,7 +302,7 @@ namespace CPM
                         diskSize = diskTotal = numTrack * spt * sectorSize / 1024;
                         dirSectStart = dirStart / sectorSize;
                         break;
-                    }
+                        }
 
                 // error if no match found
                 if (ctr == DiskType.GetLength(0))
@@ -308,10 +312,10 @@ namespace CPM
 
 
                 if ((spt != sptD || sectorSize != sectorSizeD) && result == 1)
-                {
+                    {
                     MessageBox.Show("Error - sector/track or sector size mismatch", "Error", MessageBoxButtons.OK);
                     result = 0;
-                }
+                    }
 
                 if (result == 1) // done error checking, read directory
                     {
@@ -345,7 +349,7 @@ namespace CPM
                                         extantnum = buf[bufPtr + dirPtr + 12],
                                         fcbnum = buf[bufPtr + dirPtr + 15]
                                         };
-                                    for (var k = 16; k < 32-(albNumSize-1)*8; k++) tempFcb.fcb[k - 16] = (int)buf[bufPtr + dirPtr + 16 + ((k - 16) * albNumSize)];
+                                    for (var k = 16; k < 32 - (albNumSize - 1) * 8; k++) tempFcb.fcb[k - 16] = (int)buf[bufPtr + dirPtr + 16 + ((k - 16) * albNumSize)];
                                     temp.fcbList.Add(tempFcb);
                                     var obj = fileNameList.FirstOrDefault(x => x.fname == fnameStr);
                                     if (obj != null)            // directory entry exists
@@ -359,7 +363,7 @@ namespace CPM
                                         }
                                     }
                                 }
-                                                        }
+                            }
                         }
                     fileNameList.Sort();
                     //debug
@@ -381,13 +385,15 @@ namespace CPM
                 }
 
             if (result == 0)            // clear instance data
-            {
+                {
                 diskSize = 0;
                 DiskImageImdActive = "";
                 fileNameList.Clear();
+                }
+            return ;
             }
-            return fileNameList;
-            }
+
+
         //***************** Extract File CP/M IMD
         // Call ReadImdDisk to make sure image is in memory
         // Check to make sure file is in DirList
@@ -396,14 +402,14 @@ namespace CPM
             var diskImage = diskFileEntry.DiskImageName;
             //var fileNameListtemp = new List<CPMFile.DirList>();
             long diskUsed = 0, diskTotal = 0;
-            int result =0;
+            int result = 0;
 
 
 
-            var fileNameListTemp = ReadImdDir(diskImage, ref diskTotal);
+            ReadImdDir(diskImage, ref diskTotal);
             var obj = fileNameList.FirstOrDefault(x => x.fname == diskFileEntry.FileName);
             if (obj != null)
-            {
+                {
                 var encoding = new UTF8Encoding();
                 var dir = string.Format("{0}_Files", diskImage); // create directory name and check if directory exists
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
@@ -415,54 +421,51 @@ namespace CPM
                 var file_name = string.Format("{0}\\{1}.{2}", dir, name, ext);
 
                 if (File.Exists(file_name))
-                    {
                     if (MessageBox.Show("File exists, Overwrite it?", "File Exists", MessageBoxButtons.YesNo) ==
                         DialogResult.No)
                         {
                         result = 0;
                         return result;
                         }
-                    else
-                        file_name = file_name + "1";
-                    }
-
+                   
+ 
                 var file_out = File.Create(file_name);
                 var bin_out = new BinaryWriter(file_out);
 
 
                 // Read file data from memory buffer
-                byte[] wBuff = new byte[obj.fsize*1024+256];          // write buffer = file size plus a buffer
+                byte[] wBuff = new byte[obj.fsize * 1024 + 256];          // write buffer = file size plus a buffer
                 int wBPtr = 0;
                 var t0 = 0;
                 foreach (var f in obj.fcbList)
-                {
+                    {
                     t0++;
                     var fcbNum = f.fcbnum; // number of 128 byte CP/M records in the FCB
                     for (var i = 0; i < 16 / albNumSize && fcbNum > 0; i++) // read each fcb block in record. may be 8 or 16 values
-                    {
-
-                       if (f.fcb[i] > 0) // only process valid allocation blocks
                         {
+
+                        if (f.fcb[i] > 0) // only process valid allocation blocks
+                            {
                             var sectPerAlb = albSize / sectorSize;
                             //var t2 = f.fcb[i] * sectPerAlb + dirSectStart; // debug
-                            for (var albCnt = 0;albCnt < sectPerAlb;albCnt++) // number of sectors to read in this allocation block
-                            {
+                            for (var albCnt = 0; albCnt < sectPerAlb; albCnt++) // number of sectors to read in this allocation block
+                                {
                                 //var t3 = f.fcb[i] * sectPerAlb + dirSectStart + albCnt;
                                 var bufPtr = diskMap[f.fcb[i] * sectPerAlb + dirSectStart + albCnt]; // location of sector in buf[]
                                 var bufData = buf[bufPtr]; // get IMD sector marker. If odd, a sector worth of data follows
 
                                 if (bufData % 2 > 0) // IMD sector marker. odd number equals sector worth of data
-                                {
+                                    {
                                     bufPtr++; // point to first data byte
                                     int k = 0;                                      // declared outside for loop to preserve value
-                                    for (;k < sectorSize / 128 && k < fcbNum;k++) // read only one sector or the number of fcb records left
+                                    for (; k < sectorSize / 128 && k < fcbNum; k++) // read only one sector or the number of fcb records left
                                         for (var j = 0; j < 128; j++)
                                             wBuff[wBPtr++] = buf[bufPtr++];
                                     fcbNum -= k; // decrement fcbnum counter by number of records read
-                                }
+                                    }
                                 else
-                                    // IMD marker even, sector is compressed. next byte equals sector data
-                                {
+                                // IMD marker even, sector is compressed. next byte equals sector data
+                                    {
                                     bufPtr++;
                                     int k = 0;
 
@@ -471,21 +474,21 @@ namespace CPM
                                             wBuff[wBPtr++] = buf[bufPtr];
                                     fcbNum -= k; // decrement fcbnum counter by number of records read
 
-                                }
+                                    }
 
+                                }
                             }
                         }
                     }
-                }
                 wBPtr--;
                 bin_out.Write(wBuff, 0, wBPtr);
                 bin_out.Close();
                 file_out.Close();
                 result = 1;
 
-            }
+                }
             else
-                MessageBox.Show(diskFileEntry.FileName + " error. File not found in DirList", "Error",MessageBoxButtons.OK);
+                MessageBox.Show(diskFileEntry.FileName + " error. File not found in DirList", "Error", MessageBoxButtons.OK);
 
             return result;
             }
@@ -575,14 +578,14 @@ namespace CPM
             int[] extList = new int[dirSize / 32];
             int extListi = 0;
 
-            var skewMap =
-                new int[16, 2]; // max number of sectors on a Heathkit floppy. Fill must be greater than buffer size
+           // var skewMap = new int[32,2];
+                //new int[16, 2]; // max number of sectors on a Heathkit floppy. Fill must be greater than buffer size
 
-            for (var i = 0; i < 16; i++) // initialize skew table
-                {
-                skewMap[i, 0] = 32;
-                skewMap[i, 1] = i;
-                }
+            //for (var i = 0; i < 16; i++) // initialize skew table
+            //    {
+            //    skewMap[i, 0] = 32;
+            //    skewMap[i, 1] = i;
+            //    }
 
             // write the file to the disk image
             string filename8 = Path.GetFileNameWithoutExtension(filename);
@@ -590,7 +593,7 @@ namespace CPM
                 {
                 return 0;
                 }
-            BuildSkew(ref skewMap, interleave, spt);
+            var skewMap = BuildSkew( interleave, spt);
             var encoding = new ASCIIEncoding();
             filename8 = filename8.Substring(0, Math.Min(filename8.Length, 8));
             filename8 = filename8.PadRight(8, ' ');
@@ -646,13 +649,13 @@ namespace CPM
                         var diskPtr = 0;
                         if (startSector + i < spt)
                             {
-                            t1 = skewMap[startSector + i, 1];
-                            diskPtr = skewMap[startSector + i, 1] * sectorSize + basePtr;
+                            t1 = skewMap[startSector + i];
+                            diskPtr = skewMap[startSector + i] * sectorSize + basePtr;
                             }
                         else
                             {
-                            t1 = skewMap[startSector + i - spt, 1];
-                            diskPtr = skewMap[startSector + i - spt, 1] * sectorSize + trackSize + basePtr;
+                            t1 = skewMap[startSector + i - spt];
+                            diskPtr = skewMap[startSector + i - spt] * sectorSize + trackSize + basePtr;
                             }
 
                         for (var ctrIndex = 0; ctrIndex < sectorSize; ctrIndex++)
@@ -674,42 +677,159 @@ namespace CPM
 
             return result;
             }
+        //*********************ReadCPMdDir(fileName, ref diskTotal)
+        //
+
+        public void ReadCpmDir(string diskFileName, ref long diskTotal)
+        {
+            // Check if file already in memory. If not, then process
+            // open file: fileName
+            // check H37 file type in byte 6
+            // get disk parameters
+            // Read directory gathering file names and sizes
+            // update fcbList with fcb list for each file
+            // update file count and total file size
+
+            int result = 0, fileLen=0;
+            UTF8Encoding encoding = new UTF8Encoding();
+
+            if (diskFileName != DiskImageImdActive) // check if data already in memory
+            {
+                FileStream file = File.OpenRead(diskFileName); // read entire file into an array of byte
+                BinaryReader fileByte = new BinaryReader(file);
+                fileLen = (int) file.Length;
+                try
+                {
+                    if (fileByte.Read(buf, 0, bufferSize) != fileLen)
+                    {
+                        MessageBox.Show("File read error", "Error", MessageBoxButtons.OK);
+                        return;
+                    }
+                }
+                catch
+                {
+                    MessageBox.Show("File buffer too small", "Error", MessageBoxButtons.OK);
+                    return;
+                }
+
+                DiskImageImdActive = diskFileName;
+                diskSize = fileLen;
+                fileNameList.Clear();
+
+            }
+            else return;      // list is current do nothing
+
+            diskType = (int) buf[5];
+            int ctr,
+                bufPtr = 0;
+
+            for (ctr = 0; ctr < DiskType.GetLength(0); ctr++) // search DiskType array for values
+                if (diskType == DiskType[ctr, 0]||ctr == DiskType.GetLength(0)-1)
+                {                                       // if ctr equals last value, use as default
+                    albSize = DiskType[ctr, 1];         // ALB Size
+                    albNumSize = DiskType[ctr, 3];      // size of ALB size in directory
+                    dirStart = DiskType[ctr, 2];        // physical start of directory
+                    dirSize = DiskType[ctr, 4];         // size of the directory
+                    intLv = DiskType[ctr, 5];           // interleave
+                    spt = DiskType[ctr, 6];             // sectors per track  
+                    sectorSize = DiskType[ctr, 7];      // sector size
+                    numTrack = DiskType[ctr, 8];        // number of tracks on the disk
+                    diskSize = diskTotal = numTrack * spt * sectorSize / 1024;
+                    dirSectStart = dirStart / sectorSize;
+                    break;
+                }
+
+            if (ctr == DiskType.GetLength(0)-1&& fileLen > 120 * 1024)           // using default, check file size
+            {
+                albSize = 0x800;
+                dirSize = albSize * 2;      // larger directory for 400k H17 disks
+                diskSize = diskTotal = 160* spt * sectorSize / 1024;
+
+            }
+            // error if no match found
+            if (ctr == DiskType.GetLength(0))
+                MessageBox.Show("Error - CP/M Disk Type not found in File", "Error", MessageBoxButtons.OK);
+            else
+                result = 1;
+            if (result == 1) // done error checking, read directory
+            {
+                // Read Dir
+                var diskUsed = 0;
+                var skewMap = BuildSkew( intLv, spt);
+                for (var i = 0; i < dirSize / sectorSize; i++) // loop through # sectors in directory
+                {
+                    bufPtr = dirStart+ i/spt * sectorSize*spt+ skewMap[i%spt]* sectorSize;
+                    for (var dirPtr = 0; dirPtr < sectorSize; dirPtr += 32)  // loop through sector checking DIR entries
+                    {
+                        if (buf[bufPtr + dirPtr] != 0xe5)
+                        {
+                            // process flag data
+                            var flagStr = "";
+                            if ((buf[bufPtr + dirPtr + 9] & 0x80) > 0) flagStr += "R/O";
+                            if ((buf[bufPtr + dirPtr + 10] & 0x80) > 0) flagStr += " S";
+                            if ((buf[bufPtr + dirPtr + 11] & 0x80) > 0) flagStr += " W";
+                            for (int k = 9; k < 12; k++)
+                                buf[bufPtr + dirPtr + k] &= 0x7f; // mask high bit for string conversion
+
+                            // get file name in both string and byte format
+                            string fnameStr = encoding.GetString(buf, bufPtr + dirPtr + 1, 11);
+                            //fnameStr = fnameStr.Insert(8, " ");
+                            int fileDirSize = buf[bufPtr + dirPtr + 15] * 128;
+                            var temp = new DirList(fnameStr, fileDirSize, flagStr); // temp storage
+                            Array.Copy(buf, bufPtr + dirPtr + 1, temp.fnameB, 0, 11); // copy byte filename
+                            diskUsed += fileDirSize;
+                            temp.fcbNumSize = albNumSize;
+                            var tempFcb = new FCBlist
+                            {
+                                extantnum = buf[bufPtr + dirPtr + 12],
+                                fcbnum = buf[bufPtr + dirPtr + 15]
+                            };
+                            for (var k = 16; k < 32 - (albNumSize - 1) * 8; k++)
+                                tempFcb.fcb[k - 16] = (int) buf[bufPtr + dirPtr + 16 + ((k - 16) * albNumSize)];
+                            temp.fcbList.Add(tempFcb);
+                            var obj = fileNameList.FirstOrDefault(x => x.fname == fnameStr);
+                            if (obj != null) // directory entry exists
+                            {
+                                obj.fsize += fileDirSize; // update file size
+                                obj.fcbList.Add(tempFcb); // add file control block
+                            }
+                            else
+                                fileNameList.Add(temp);
+                        }
+                    }
+
+                    fileNameList.Sort();
+                }
+            }
+        }
+
         // ************** Extract File CP/M  *********************
         // inputs: path and filename, disk entry structure
         // output: requested file
         public int ExtractFileCPM(Form1.DiskFileEntry disk_file_entry)
-            {
-            var disk_image_file = disk_file_entry.DiskImageName;
+        {
             var result = 1; // assume success
             int temp;
-            var diskType = 0;
-            var ctr = 0; // for loop counter
-            var maxBuffSize = 0x800;            // largest allocation block size
-            int allocBlock = 0,
-                dirStart = 0,
-                dirSize = 0,
-                interleave = 0,
-                spt = 0,
-                sectorSize = 0; // disk parameter values
-            var buff = new byte[maxBuffSize]; // disk buffer equal to largest allocation block size
-            var wBuff = new byte[maxBuffSize];            //   write buffer
-            //var directory = new List<FCBlist>();
-            var skewMap =
-                new int[16, 2]; // max number of sectors on a Heathkit floppy. Fill must be greater than buffer size
+            //var diskType = 0;
+            //var ctr = 0; // for loop counter
+            var maxBuffSize = 0x2000;            // largest allocation block size
+            //int allocBlock = 0,
+            //    dirStart = 0,
+            //    dirSize = 0,
+            //    interleave = 0,
+            //    spt = 0,
+            //    sectorSize = 0; // disk parameter values
+           // var buff = new byte[maxBuffSize]; // disk buffer equal to largest allocation block size
+            long diskTotal = 0;
 
-            for (var i = 0; i < 16; i++) // initialize skew table
-                {
-                skewMap[i, 0] = 32;
-                skewMap[i, 1] = i;
-                }
-
-            // debug
-            // var cpmFile = new CPMFile();
-            //var temp1 = FCBfirst.Count;
+            var disk_image_file = disk_file_entry.DiskImageName;
+            if (disk_image_file != DiskImageImdActive)
+            {
+                ReadCpmDir(disk_image_file, ref diskTotal);
+            }
 
             var encoding = new UTF8Encoding();
-            var dir = string.Format("{0}_Files",
-                disk_image_file); // create directory name and check if directory exists
+            var dir = string.Format("{0}_Files", disk_image_file); // create directory name and check if directory exists
             if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
             fnameb = encoding.GetBytes(disk_file_entry.FileName);
 
@@ -719,75 +839,107 @@ namespace CPM
             var file_name = string.Format("{0}\\{1}.{2}", dir, name, ext);
 
             if (File.Exists(file_name))
-                {
                 if (MessageBox.Show("File exists, Overwrite it?", "File Exists", MessageBoxButtons.YesNo) ==
                     DialogResult.No)
                     {
                     result = 0;
                     return result;
                     }
-                else
-                    file_name = file_name + "1";
-                }
 
+           
             var file_out = File.Create(file_name);
             var bin_out = new BinaryWriter(file_out);
 
 
             // Open input file
-            var file = File.OpenRead(disk_image_file);
-            var bin_file = new BinaryReader(file);
-            temp = bin_file.Read(buff, 0, 256);
-            var t = buff.Length;
-            diskType = (int)buff[5];
-            /* debug
-             ctr = DiskType.GetLength(0);
-            ctr = DiskType.GetLength(1);
-            */
-            for (ctr = 0; ctr < DiskType.GetLength(0); ctr++) // search DiskType array for values
-                if (diskType == DiskType[ctr, 0])
-                    break;
+            //var file = File.OpenRead(disk_image_file);
+            //var bin_file = new BinaryReader(file);
+            //temp = bin_file.Read(buff, 0, 256);
+            //var t = buff.Length;
+            //diskType = (int)buff[5];
+            ///* debug
+            // ctr = DiskType.GetLength(0);
+            //ctr = DiskType.GetLength(1);
+            //*/
+            //for (ctr = 0; ctr < DiskType.GetLength(0); ctr++) // search DiskType array for values
+            //    if (diskType == DiskType[ctr, 0])
+            //        break;
 
-            // use default if no match found
-            if (ctr == DiskType.GetLength(0))
-                ctr = DiskType.GetLength(0) - 1;        // default H17 format
-            allocBlock = DiskType[ctr, 1];      // ALB Size
-            dirStart = DiskType[ctr, 2];        // physical start of directory
-            dirSize = DiskType[ctr, 4];         // size of the directory
-            interleave = DiskType[ctr, 5];      // disk interleave
-            spt = DiskType[ctr, 6];             // sectors per track  
-            sectorSize = DiskType[ctr, 7];      // sector size           //else
-                                                // read the directory
-            BuildSkew(ref skewMap, interleave, spt);
-            // read directory sectors and place in sequential order in buff
-            for (var i = 0; i < dirSize / allocBlock; i++)
-                GetALB(ref buff, allocBlock * i, bin_file, i, dirStart, allocBlock, sectorSize, spt, skewMap);
-            BuildDir(ref buff, dirSize, ref FCBfirst, fnameb);             // build FCB list for filename
-            foreach (var f in FCBfirst)
+            //// use default if no match found
+            //if (ctr == DiskType.GetLength(0))
+            //    ctr = DiskType.GetLength(0) - 1;        // default H17 format
+            //allocBlock = DiskType[ctr, 1];      // ALB Size
+            //dirStart = DiskType[ctr, 2];        // physical start of directory
+            //dirSize = DiskType[ctr, 4];         // size of the directory
+            //interleave = DiskType[ctr, 5];      // disk interleave
+            //spt = DiskType[ctr, 6];             // sectors per track  
+            //sectorSize = DiskType[ctr, 7];      // sector size           //else
+            //                                    // read the directory
+            var skewMap = BuildSkew( intLv, spt);
+
+                            // Find filename in DIRList
+            var obj = fileNameList.FirstOrDefault(x => x.fname == disk_file_entry.FileName);
+            if (obj != null)
+            {
+                var rBptr = 0;              // read buffer ptr
+                var wBptr = 0;              // write buffer ptr
+                byte[] wBuff = new byte[obj.fsize+256];            //   write buffer
+
+                foreach (var f in obj.fcbList)
                 {
-                var fcbNum = f.fcbnum;
-                var cpmAlb = allocBlock / 128;              // number of 128 byte CP/M records in the allocation block
-                var rBptr = 0;
-                var wBptr = 0;
-                for (var i = 0; i < 16; i++)
-                    if (f.fcb[i] > 0)
+                    var fcbNum = f.fcbnum;
+                    for (var i = 0; i < 16; i++)
+                        if (f.fcb[i] > 0) // allocation block to get
                         {
-                        rBptr = wBptr = 0;
-                        GetALB(ref buff, 0, bin_file, f.fcb[i], dirStart, allocBlock, sectorSize, spt, skewMap);
-                        for (var j = 0; j < cpmAlb; j++)
+                            for (var k = 0; k < albSize / sectorSize; k++) // read the sectors in the allocation block
                             {
-                            if (fcbNum > 0)
-                                for (var l = 0; l < 128; l++) wBuff[wBptr++] = buff[rBptr++];
-                            fcbNum--;
+                                //GetALB(ref buff, 0, bin_file, f.fcb[i], dirStart, allocBlock, sectorSize, spt, skewMap);
+                                var t0 = f.fcb[i];
+                                var sectOffset = f.fcb[i] * albSize / sectorSize + k; // sector to get
+                                var t1 = sectOffset % spt; // sector to get on the track
+                                var t2 = sectOffset / spt; // # of tracks
+                                rBptr = dirStart + (sectOffset / spt) * sectorSize * spt +
+                                        skewMap[sectOffset % spt] * sectorSize;
+                                int j = 0;
+                                for (; j < sectorSize / 128 && j < fcbNum; j++)
+                                for (var l = 0; l < 128; l++)
+                                    wBuff[wBptr++] = buf[rBptr++];
+                                fcbNum -= j;
+
                             }
-                        bin_out.Write(wBuff, 0, wBptr);
                         }
                 }
+
+                bin_out.Write(wBuff, 0, wBptr);
+             
+            }
+
+            //for (var i = 0; i < dirSize / albSize; i++)
+            //    GetALB(ref buff, allocBlock * i, bin_file, i, dirStart, allocBlock, sectorSize, spt, skewMap);
+            //BuildDir(ref buff, dirSize, ref FCBfirst, fnameb);             // build FCB list for filename
+            //foreach (var f in FCBfirst)
+            //    {
+            //    var fcbNum = f.fcbnum;
+            //    var cpmAlb = albSize / 128;              // number of 128 byte CP/M records in the allocation block
+            //    var rBptr = 0;
+            //    var wBptr = 0;
+            //    for (var i = 0; i < 16; i++)
+            //        if (f.fcb[i] > 0)
+            //            {
+            //            rBptr = wBptr = 0;
+            //            GetALB(ref buff, 0, bin_file, f.fcb[i], dirStart, allocBlock, sectorSize, spt, skewMap);
+            //            for (var j = 0; j < cpmAlb; j++)
+            //                {
+            //                if (fcbNum > 0)
+            //                    for (var l = 0; l < 128; l++) wBuff[wBptr++] = buff[rBptr++];
+            //                fcbNum--;
+            //                }
+            //            bin_out.Write(wBuff, 0, wBptr);
+            //            }
+            //    }
             bin_out.Close();
             file_out.Close();
 
-            bin_file.Close();
-            file.Close();
             return result;
             }
 
@@ -825,8 +977,10 @@ namespace CPM
             }
 
         // **************** Read one Allocation Block into buffer at offset
+        // reads file and returns all sectors in an allocation block in sequential buffer buf
+        //
         private void GetALB(ref byte[] buf, int buffOffset, BinaryReader fp, int alb, int dirStart, int blockSize,
-            int sectorSize, int spt, int[,] skew)
+            int sectorSize, int spt, int[] skew)
             {
             var start = alb * blockSize; // start of allocation block (AB) to read
             var trackSize = spt * sectorSize;
@@ -863,13 +1017,13 @@ namespace CPM
                 {
                 if (startSector + i < spt)
                     {
-                    t1 = skew[startSector + i, 1];
-                    bufLocalIndex = skew[startSector + i, 1] * sectorSize;
+                    t1 = skew[startSector + i];
+                    bufLocalIndex = skew[startSector + i] * sectorSize;
                     }
                 else
                     {
-                    t1 = skew[startSector + i - spt, 1];
-                    bufLocalIndex = skew[startSector + i - spt, 1] * sectorSize + trackSize;
+                    //t1 = skew[startSector + i - spt, 1];
+                    bufLocalIndex = skew[startSector + i - spt] * sectorSize + trackSize;
                     }
 
                 for (var ctrIndex = 0; ctrIndex < sectorSize; ctrIndex++) buf[bufIndex++] = localBuf[bufLocalIndex++];
@@ -877,53 +1031,97 @@ namespace CPM
             }
 
         //********************** Build Skew array for one Track *********************
-        public void BuildSkew(ref int[,] skew, int intLv, int size)
+        //public void BuildSkew(ref int[,] skew, int intLv, int size)
+        //    {
+        //    var physicalS = 0;
+        //    var logicalS = 0;
+        //    //var temp = new int[16, 2];
+        //    var t = 0;
+        //    // initialize table
+        //    for (var i = 0; i < skew.GetLength(0); i++) // initialize skew table
+        //                                                //    skew[i] = 32;
+        //        {
+        //        skew[i, 0] = 32;
+        //        skew[i, 1] = i;
+        //        }
+        //    while (logicalS < size)         // build physical to logical skew table
+        //        {
+        //        if (skew[physicalS,0] > size) // logical position not yet filled
+        //            {
+        //            skew[physicalS,0] = (byte)logicalS++;
+        //            physicalS += intLv;
+        //            }
+        //        else
+        //            {
+        //            physicalS++; // bump to next physical position
+        //            }
+
+        //        if (physicalS >= size) physicalS = physicalS - size;
+        //        }
+
+        //    var skewNew = BuildSkew1(intLv, size);
+        //    /*
+        //    // convert to logical to physical format
+        //    logicalS = 0;
+        //    while (logicalS < size)
+        //        {
+        //        if (logicalS == skew[logicalS, 0])
+        //            {
+        //            temp[logicalS, 0] = logicalS;
+        //            temp[logicalS, 1] = skew[logicalS, 1];
+        //            }
+        //        else
+        //            {
+        //            t = 0;
+        //            while (t < size && skew[t, 0] != logicalS) t++;         // find where logical sector is in the physical record
+        //            temp[logicalS, 0] = logicalS;
+        //            temp[logicalS, 1] = skew[t, 1];
+        //            }
+
+        //        logicalS++;
+        //        }
+
+        //    for (t = 0; t < size; t++)              // copy logical to physical mapping to skew table
+        //        {
+        //        skew[t, 0] = temp[t, 0];
+        //        skew[t, 1] = temp[t, 1];
+        //        }
+        //    */
+        //    var t0 = 0;
+        //    }
+
+        public int[] BuildSkew(int intLv, int spt)
             {
             var physicalS = 0;
             var logicalS = 0;
-            var temp = new int[16, 2];
+            var count = new int[spt];
+            var skew = new int[spt];
             var t = 0;
-
-            while (logicalS < size)         // build physical to logical skew table
-                {
-                if (skew[physicalS, 0] > size) // logical position not yet filled
-                    {
-                    skew[physicalS, 0] = (byte)logicalS++;
-                    physicalS += intLv;
-                    }
-                else
-                    {
-                    physicalS++; // bump to next physical position
-                    }
-
-                if (physicalS >= size) physicalS = physicalS - size;
-                }
-
-            // convert to logical to physical format
-            logicalS = 0;
-            while (logicalS < size)
-                {
-                if (logicalS == skew[logicalS, 0])
-                    {
-                    temp[logicalS, 0] = logicalS;
-                    temp[logicalS, 1] = skew[logicalS, 1];
-                    }
-                else
-                    {
-                    t = 0;
-                    while (t < size && skew[t, 0] != logicalS) t++;         // find where logical sector is in the physical record
-                    temp[logicalS, 0] = logicalS;
-                    temp[logicalS, 1] = skew[t, 1];
-                    }
-
-                logicalS++;
-                }
-
-            for (t = 0; t < size; t++)              // copy logical to physical mapping to skew table
-                {
-                skew[t, 0] = temp[t, 0];
-                skew[t, 1] = temp[t, 1];
-                }
+            // initialize table
+            for (var i = 0; i < spt; i++) // initialize skew table
+            {
+                skew[i] = 32;
+                count[i] = i;
             }
+            while (logicalS < spt)         // build physical to logical skew table
+            {
+                if (skew[physicalS] > spt) // logical position not yet filled
+                {
+                    skew[physicalS] = (byte)logicalS++;
+                    physicalS += intLv;
+                }
+                else
+                {
+                    physicalS++; // bump to next physical position
+                }
+
+                if (physicalS >= spt) physicalS = physicalS - spt;
+            }
+            Array.Sort(skew, count);        // sort both arrays using skew values and return count array for offset
+            return count;
+            }
+
+
         }
+
     }

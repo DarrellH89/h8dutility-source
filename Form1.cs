@@ -3,7 +3,6 @@ using H8DUtility;
 
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -112,7 +111,7 @@ namespace H8DReader
 
         private void Form1_Load(object sender, EventArgs e)
             {
-            label6.Text = "Version 2.0 CP/M extract/Add, IMD Read/Extract";       // version number update Darrell Pelan
+            label6.Text = "Version 2.0a CP/M extract/Add, IMD Read/Extract";       // version number update Darrell Pelan
 
             FileViewerBorder = new GroupBox();
             FileViewerBorder.Size = new System.Drawing.Size(720, 580);
@@ -187,13 +186,22 @@ namespace H8DReader
             listBox1.Items.Clear();                             // clear file list
             label3.Text = folderBrowserDialog1.SelectedPath;    // display current working directory
             // set file extension types to scan directory
-            string[] h8d_list = Directory.GetFiles(label3.Text, "*.h8d");
-            string[] svd_list = Directory.GetFiles(label3.Text, "*.svd");
-            string[] imd_list = Directory.GetFiles(label3.Text, "*.imd");
-            string[] file_list = new string[h8d_list.Length + svd_list.Length + imd_list.Length];         // combine filename lists
-            Array.Copy(h8d_list, file_list, h8d_list.Length);
-            Array.Copy(svd_list, 0, file_list, h8d_list.Length, svd_list.Length);
-            Array.Copy(imd_list, 0, file_list, h8d_list.Length + svd_list.Length, imd_list.Length);
+            string[] file_list =new string[1];
+            try
+            {
+                string[] h8d_list = Directory.GetFiles(label3.Text, "*.h8d");
+                string[] svd_list = Directory.GetFiles(label3.Text, "*.svd");
+                string[] imd_list = Directory.GetFiles(label3.Text, "*.imd");
+                file_list = new string[h8d_list.Length + svd_list.Length + imd_list.Length]; // combine filename lists
+                Array.Copy(h8d_list, file_list, h8d_list.Length);
+                Array.Copy(svd_list, 0, file_list, h8d_list.Length, svd_list.Length);
+                Array.Copy(imd_list, 0, file_list, h8d_list.Length + svd_list.Length, imd_list.Length);
+            }
+            catch
+            {       // Directory not found, clear string
+                file_list = null;
+                label3.Text = "";
+            }
 
 
             if (file_list.Length == 0)
@@ -272,14 +280,14 @@ namespace H8DReader
                 {
                 foreach (var lb in listBox1.SelectedItems)
                     {
-                    var file_name = label3.Text + "\\" + lb; // path + file name
+                    var disk_name = label3.Text + "\\" + lb; // path + file name
                     listBox2.Items.Add(lb.ToString());
                     if (lb.ToString().Contains(".H8D"))
-                        ProcessFile(file_name);
+                        ProcessFile(disk_name);
                     else
-                        if (lb.ToString().Contains(".IMD")) ProcessFileImd(file_name);
+                        if (lb.ToString().Contains(".IMD")) ProcessFileImd(disk_name);
                     else
-                            if (lb.ToString().Contains(".H37")) ProcessFileH37(file_name);
+                            if (lb.ToString().Contains(".H37")) ProcessFileH37(disk_name);
                     }
                 }
             // dcp TODO add .imd capability
@@ -287,15 +295,15 @@ namespace H8DReader
                 {
                 foreach (var lb in listBox1.Items)
                     {
-                    var file_name = label3.Text + "\\" + lb;
+                    var disk_name = label3.Text + "\\" + lb;
                     listBox2.Items.Add(lb.ToString());
 
                     if (lb.ToString().Contains(".H8D"))
-                        ProcessFile(file_name);
+                        ProcessFile(disk_name);
                     else
-                        if (lb.ToString().Contains(".IMD")) ProcessFileImd(file_name);
+                        if (lb.ToString().Contains(".IMD")) ProcessFileImd(disk_name);
                     else
-                            if (lb.ToString().Contains(".H37")) ProcessFileH37(file_name);
+                            if (lb.ToString().Contains(".H37")) ProcessFileH37(disk_name);
 
                     }
 
@@ -325,6 +333,149 @@ namespace H8DReader
             ushort big_endian_16 = (ushort)(h | l);
             return (big_endian_16);
             }
+        //************************** Convert IMD ******************************************
+        private void button13_click(object sender, EventArgs e)
+            {
+            var sectorSizeList = new int[] { 128, 256, 512, 1024, 2048, 4096, 8192 }; // IMD values
+            int result = 0, diskType = 0;
+            UTF8Encoding encoding = new UTF8Encoding();
+            if (listBox1.SelectedIndex != -1)
+                foreach (var lb in listBox1.SelectedItems)
+                    {
+                    if (lb.ToString().ToUpper().Contains(".IMD"))
+                        {
+                        //if (MessageBox.Show("Click Yes for HDOS, No for CP/M ", "Disk Type", MessageBoxButtons.YesNo) ==
+                        //    DialogResult.Yes) diskType = 1;
+                        var diskFileName = label3.Text + "\\" + lb.ToString();
+                        FileStream file = File.OpenRead(diskFileName); // read entire file into an array of byte
+                        BinaryReader fileByte = new BinaryReader(file);
+                        Int32 fileLen = (int)file.Length;
+                        byte[] buf = new byte[fileLen];
+                        byte[] wbuf = new byte[fileLen];
+                        try
+                            {
+                            if (fileByte.Read(buf, 0, fileLen) != fileLen)
+                                MessageBox.Show("IMD file read error", "Error", MessageBoxButtons.OK);
+                            }
+                        catch
+                            {
+                            MessageBox.Show("IMD Access error", "Error", MessageBoxButtons.OK);
+                            }
+
+                        fileByte.Close();
+                        file.Close();
+
+                        int wBufPtr = 0, bufPtr = 0, firstSector = 0;
+                        diskFileName = diskFileName.Replace(".IMD", ".H8D");
+                        if (File.Exists(diskFileName))
+                            if (MessageBox.Show("File exists, Overwrite it?", "File Exists", MessageBoxButtons.YesNo) ==
+                                DialogResult.No)
+                                return;
+
+                        var file_out = File.Create(diskFileName);
+                        var bin_out = new BinaryWriter(file_out);
+
+                        // write file with no interleave
+
+                        while (buf[bufPtr] != 0x1a && bufPtr < fileLen)
+                            bufPtr++; // look for end of text comment in IMD file
+                        if (bufPtr < fileLen && buf[bufPtr + 1] < 6) // process as IMD file
+                            {
+                            bufPtr += 4;
+                            var spt = buf[bufPtr++]; // sectors per track
+                            var sectorSize = sectorSizeList[buf[bufPtr++]];
+                            var diskSkew = new int[spt];
+                            for (var i = 0; i < spt; i++) diskSkew[i] = buf[bufPtr++]; // load skew table
+                            int shift = 0, temp = 0;
+                            while (diskSkew[0] != 1 && shift < spt)
+                                {
+                                temp = diskSkew[spt - 1];
+                                for (var i = spt - 1; i > 0; i--) diskSkew[i] = diskSkew[i - 1];
+                                diskSkew[0] = temp;
+                                shift++;                    // count the number of times we had to shift the skew map
+                                }
+
+                            firstSector = bufPtr;
+                            int numTrack = 0;
+
+                            int sectorCnt = 0, totalSect = 0;
+                            int sectStart = 0;
+                            //var filePtr = firstSector;
+                            while (bufPtr < fileLen)
+                                {
+                                //int t1 = sectorCnt % spt;
+                                //int t2 = skewMap[sectorCnt % spt];
+                                //int t3 = (sectorCnt / spt) * spt;
+                                // int t4 = buf[bufPtr];
+                                totalSect++;
+                                int t0 = (sectorCnt + shift) % spt;
+                                switch (buf[bufPtr])
+                                    {
+                                    case 1:
+                                    case 3:
+                                    case 5:
+                                    case 7:
+                                        bufPtr++;               // order sectors in logical order
+            
+                                        int t00 = diskSkew[((sectorCnt + shift) % spt)];
+                                        int t1 = t0 * sectorSize;
+                                        wBufPtr = 0;
+                                        for (var i = 0; i < sectorSize; i++) wbuf[((sectorCnt + shift) % spt) * sectorSize + wBufPtr++] = buf[bufPtr++];
+                                        Console.Write("Track {0} Sector {1} Offset {2:X4} Skew {3:g2} ", numTrack, sectorCnt, t0*sectorSize +numTrack*5120, diskSkew[sectorCnt]);
+                                        Console.WriteLine("{0:X2} {1:X2} {2:X2} {3:X2}", wbuf[t1+0], wbuf[t1+1], wbuf[t1+2], wbuf[t1+3]);
+                                       break;
+                                    case 2:
+                                    case 4:
+                                    case 6:
+                                    case 8:
+                                        bufPtr++;
+                                        wBufPtr = 0;
+                                        t1 = t0 * sectorSize;
+
+                                        for (var i = 0; i < sectorSize; i++) wbuf[((sectorCnt + shift) % spt) * sectorSize + wBufPtr++] = buf[bufPtr];
+                                        Console.Write("Track {0} Sector {1} Offset {2:X4} Skew {3:g2} ", numTrack, sectorCnt, t0 * sectorSize + numTrack * 5120, diskSkew[sectorCnt]);
+                                        Console.WriteLine("{0:X2} {1:X2} {2:X2} {3:X2}", wbuf[t1+0], wbuf[t1+1], wbuf[t1+2], wbuf[t1+3]);
+
+                                        bufPtr++;
+                                        break;
+                                    case 0:
+                                        bufPtr++;
+                                        break;
+                                    default:
+                                        MessageBox.Show("Error - IMD sector marker out of scope", "Error",
+                                            MessageBoxButtons.OK);
+                                        break;
+                                    }
+
+                                sectorCnt++;
+                                if (sectorCnt == spt)
+                                    {
+                                    var t4 = (sectorCnt) * sectorSize;
+                                    bin_out.Write(wbuf, 0, (sectorCnt ) * sectorSize);
+                                    sectorCnt = 0;
+                                    wBufPtr = 0;
+                                    bufPtr += (5 + spt); // skip track header and interleave info
+                                    numTrack++;
+                                    sectStart += t4;
+                                    }
+
+
+                                }
+
+                            if (sectorCnt > 0) bin_out.Write(wbuf, 0, (sectorCnt - 1) * sectorSize);
+                            bin_out.Close();
+                            file_out.Close();
+                            }
+                        }
+
+                    result++;
+                    }
+
+            var resultStr = string.Format("{0} IMD files converted.", result);
+
+            if (result == 1) resultStr = resultStr.Replace("s", "");
+            MessageBox.Show(resultStr, "IMD Disk Conversion", MessageBoxButtons.OK);
+            }
 
         //******************************* Process File IMD ********************************
         private void ProcessFileImd(string DiskfileName)        // for .IMD disks
@@ -332,17 +483,17 @@ namespace H8DReader
             var getCpmFile = new CPMFile(); // create instance of CPMFile, then call function
             //var fileNameList = new List<CPMFile.DirList>();
             long diskUsed = 0, diskTotal = 0;
-            var fileNameList = getCpmFile.ReadImdDir(DiskfileName,  ref diskTotal);
+            getCpmFile.ReadImdDir(DiskfileName, ref diskTotal);
             int diskFileCnt = 0;
 
-            if (fileNameList.Count > 0)
+            if (getCpmFile.fileNameList.Count > 0)
                 {
                 diskFileCnt = 0;
                 diskUsed = 0;
                 listBox2.Items.Add("======== === ==== =========");
                 listBox2.Items.Add("  FILE   EXT SIZE   FLAGS  ");
                 listBox2.Items.Add("======== === ==== =========");
-                foreach (var f in fileNameList)
+                foreach (var f in getCpmFile.fileNameList)
                     {
                     diskFileCnt++;
                     diskUsed += f.fsize;
@@ -351,7 +502,9 @@ namespace H8DReader
                     disk_file_entry.FileName = f.fname;
                     disk_file_entry.ListBox2Entry = listBox2.Items.Count;
                     DiskFileList.Add(disk_file_entry);
-                    listBox2.Items.Add(string.Format("{0} {1,4} {2}", f.fname, f.fsize / 1024, f.flags));
+                    var tempStr = f.fname;
+                    tempStr=tempStr.Insert(8, " ");
+                    listBox2.Items.Add(string.Format("{0} {1,4} {2}", tempStr, f.fsize / 1024, f.flags));
                     }
 
                 listBox2.Items.Add("======== === ==== =========");
@@ -365,16 +518,40 @@ namespace H8DReader
             }
         //******************************* Process File H37 ********************************
 
-        private void ProcessFileH37(string fileName)        // for .H37 disks
+        private void ProcessFileH37(string diskName)        // for .H37 & H8D disks
             {
-            const int sectorSize = 2048;
 
-            byte[] buf = new byte[sectorSize];
-            UTF8Encoding encoding = new UTF8Encoding();
+            var getCpmFile = new CPMFile(); // create instance of CPMFile, then call function
+            long diskUsed = 0, diskTotal = 0;
+            getCpmFile.ReadCpmDir(diskName, ref diskTotal);
+            int diskFileCnt = 0;
 
-            FileStream file = File.OpenRead(fileName);
-            BinaryReader bin_file = new BinaryReader(file);
-            buf = bin_file.ReadBytes(sectorSize);
+            if (getCpmFile.fileNameList.Count > 0)
+                {
+                diskFileCnt = 0;
+                diskUsed = 0;
+                listBox2.Items.Add("======== === ==== =========");
+                listBox2.Items.Add("  FILE   EXT SIZE   FLAGS  ");
+                listBox2.Items.Add("======== === ==== =========");
+                foreach (var f in getCpmFile.fileNameList)
+                    {
+                    diskFileCnt++;
+                    diskUsed += f.fsize;
+                    DiskFileEntry disk_file_entry = new DiskFileEntry();
+                    disk_file_entry.DiskImageName = diskName;
+                    disk_file_entry.FileName = f.fname;
+                    disk_file_entry.ListBox2Entry = listBox2.Items.Count;
+                    DiskFileList.Add(disk_file_entry);
+                    var tempStr = f.fname.Insert(8, " ");
+                    listBox2.Items.Add(string.Format("{0} {1,4} {2}", tempStr, f.fsize / 1024, f.flags));
+                    }
+
+                listBox2.Items.Add("======== === ==== =========");
+                listBox2.Items.Add(string.Format("Files {0}, Total {1,3:N0} K, Free {2,5:N0} K", diskFileCnt, diskUsed / 1024, diskTotal - diskUsed / 1024));
+                listBox2.Items.Add("");
+                TotalSize += (int)diskUsed;
+                FileCount += diskFileCnt;
+                }
             }
 
         //***************** Process File **********************
@@ -572,8 +749,8 @@ namespace H8DReader
                 //  CP/M disk
 
                 listBox2.Items.Add("CP/M DISK IMAGE");
-
-                ReadCPMImage(file_name, ref bin_file, ref encoding);
+                ProcessFileH37(file_name);
+                //ReadCPMImage(file_name, ref bin_file, ref encoding);
                 }
             file.Close();
 
@@ -710,7 +887,7 @@ namespace H8DReader
                 } while (true);
             }
 
-        //********************  dcp ReadCPMImage for .H8D format
+        //********************  dcp update original ReadCPMImage for .H8D format
         private void ReadCPMImage(string file_name, ref BinaryReader bin_file, ref UTF8Encoding encoding)
             {
             int fsize = 0;
@@ -1348,17 +1525,17 @@ namespace H8DReader
                 {
                 for (int i = 0; i < listBox2.SelectedItems.Count; i++)
                     {
-                        idx = listBox2.SelectedIndices[i];
+                    idx = listBox2.SelectedIndices[i];
                     foreach (DiskFileEntry entry in DiskFileList)
                         {
-                         if (entry.ListBox2Entry == idx)
+                        if (entry.ListBox2Entry == idx)
                             {
                             // dcp changed Extract file to return 1 if successful
                             if (entry.DiskImageName.Contains(".IMD"))
-                            {
+                                {
                                 //var fileNameList = getCpmFile.ReadImdDir(entry.DiskImageName, ref diskTotal);
                                 files_extracted += getCpmFile.ExtractFileCPMImd(entry);
-                            }
+                                }
                             else
                                 files_extracted += ExtractFile(entry);
                             break;
