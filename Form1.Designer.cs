@@ -53,6 +53,7 @@
             this.button11 = new System.Windows.Forms.Button();
             this.button12 = new System.Windows.Forms.Button();
             this.button13 = new System.Windows.Forms.Button();
+            this.buttonCreateCPM = new System.Windows.Forms.Button();
             this.groupBox1.SuspendLayout();
             this.groupBox2.SuspendLayout();
             this.SuspendLayout();
@@ -111,9 +112,9 @@
             // 
             // button3
             // 
-            this.button3.Location = new System.Drawing.Point(701, 577);
+            this.button3.Location = new System.Drawing.Point(730, 578);
             this.button3.Name = "button3";
-            this.button3.Size = new System.Drawing.Size(84, 23);
+            this.button3.Size = new System.Drawing.Size(89, 25);
             this.button3.TabIndex = 7;
             this.button3.Text = "Save to Text";
             this.button3.UseVisualStyleBackColor = true;
@@ -121,7 +122,7 @@
             // 
             // button4
             // 
-            this.button4.Location = new System.Drawing.Point(791, 577);
+            this.button4.Location = new System.Drawing.Point(730, 609);
             this.button4.Name = "button4";
             this.button4.Size = new System.Drawing.Size(89, 23);
             this.button4.TabIndex = 8;
@@ -143,9 +144,9 @@
             // 
             this.button6.Location = new System.Drawing.Point(532, 577);
             this.button6.Name = "button6";
-            this.button6.Size = new System.Drawing.Size(75, 23);
+            this.button6.Size = new System.Drawing.Size(88, 23);
             this.button6.TabIndex = 10;
-            this.button6.Text = "Add";
+            this.button6.Text = "Add HDOS";
             this.button6.UseVisualStyleBackColor = true;
             this.button6.Click += new System.EventHandler(this.button6_Click);
             // 
@@ -182,7 +183,7 @@
             // label6
             // 
             this.label6.AutoSize = true;
-            this.label6.Location = new System.Drawing.Point(634, 645);
+            this.label6.Location = new System.Drawing.Point(565, 682);
             this.label6.Name = "label6";
             this.label6.Size = new System.Drawing.Size(95, 13);
             this.label6.TabIndex = 15;
@@ -246,7 +247,7 @@
             // 
             this.textBox2.Enabled = false;
             this.textBox2.Font = new System.Drawing.Font("Courier New", 8.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.textBox2.Location = new System.Drawing.Point(186, 608);
+            this.textBox2.Location = new System.Drawing.Point(172, 653);
             this.textBox2.MaxLength = 60;
             this.textBox2.Name = "textBox2";
             this.textBox2.Size = new System.Drawing.Size(613, 20);
@@ -255,7 +256,7 @@
             // 
             // button10
             // 
-            this.button10.Location = new System.Drawing.Point(805, 606);
+            this.button10.Location = new System.Drawing.Point(805, 653);
             this.button10.Name = "button10";
             this.button10.Size = new System.Drawing.Size(75, 23);
             this.button10.TabIndex = 23;
@@ -285,19 +286,30 @@
             // 
             // button13
             // 
-            this.button13.Location = new System.Drawing.Point(614, 578);
+            this.button13.Location = new System.Drawing.Point(626, 577);
             this.button13.Name = "button13";
-            this.button13.Size = new System.Drawing.Size(75, 23);
+            this.button13.Size = new System.Drawing.Size(88, 24);
             this.button13.TabIndex = 26;
             this.button13.Text = "IMD Convert";
             this.button13.UseVisualStyleBackColor = true;
-            this.button13.Click += new System.EventHandler(this.button13_click);
+            this.button13.Click += new System.EventHandler(this.Button13_click);
+            // 
+            // buttonCreateCPM
+            // 
+            this.buttonCreateCPM.Location = new System.Drawing.Point(532, 609);
+            this.buttonCreateCPM.Name = "buttonCreateCPM";
+            this.buttonCreateCPM.Size = new System.Drawing.Size(88, 22);
+            this.buttonCreateCPM.TabIndex = 27;
+            this.buttonCreateCPM.Text = "Add CP/M";
+            this.buttonCreateCPM.UseVisualStyleBackColor = true;
+            this.buttonCreateCPM.Click += new System.EventHandler(this.buttonCreateCPM_click);
             // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(893, 665);
+            this.ClientSize = new System.Drawing.Size(902, 704);
+            this.Controls.Add(this.buttonCreateCPM);
             this.Controls.Add(this.button13);
             this.Controls.Add(this.button12);
             this.Controls.Add(this.button11);
@@ -357,6 +369,7 @@
         private System.Windows.Forms.Button button11;
         private System.Windows.Forms.Button button12;
         private System.Windows.Forms.Button button13;
+        private System.Windows.Forms.Button buttonCreateCPM;
         }
 }
 

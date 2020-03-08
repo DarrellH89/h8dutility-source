@@ -16,5 +16,9 @@ Added enhancements to the H8Utility program to better support CP/M Files
 •	Version 2.0 
   o	Added .IMD CP/M file extraction
 •	Version 2.1 
-  o	Updated code to use single ReadCPMDir function. Corrected 400k CP/M disk extraction
-
+  o	Updated code to use single ReadCPMDir function. 
+  o	Corrected 400k CP/M disk extraction
+•	Version 2.2 
+  o	Updated Add CP/M code to support H37 format
+  o	Updated Add CP/M code to create blank disk or add to existing disk images
+  o	Added ability to save disk in .IMD format  
